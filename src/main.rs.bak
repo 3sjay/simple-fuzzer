@@ -1,0 +1,144 @@
+use std::env::args;
+use std::process::exit;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+use std::fs;
+use std::thread;
+use std::path::Path;
+
+use std::process;
+
+use rand::{self, Rng};
+
+
+use sha1::Sha1;
+
+mod mutate;
+
+/*
+https://gitlab.com/gitlab-org/vulnerability-research/kb/presentations/creating_a_snapshot_feedback_guided_fuzzer/-/tree/master/examples/d_spawn_with_ptrace_mutate_snapshot
+
+
+Generating ramdisk on osx:
+----------
+# ~2GB ramdisk
+diskutil erasevolume HFS+ 'RAM Disk' `hdiutil attach -nomount ram://4388608`
+->
+mkdir /Volumes/RAM Disk/ramstuff
+->
+/Volumes/RAM Disk/ramstuff
+
+*/
+
+
+static NTHREADS: i64 = 200;
+
+static mut COUNTER: u32 = 0;
+
+static mut input_files: Vec<Vec<u8>> = vec![];
+
+
+fn print_statistics() {
+    loop {
+        thread::sleep(Duration::from_secs(10));
+        unsafe { 
+            println!("Execs/sec: {:.2}", COUNTER/10);
+            COUNTER = 0 
+        };
+    }
+}
+
+fn fill_up_input_files(dir: &Path) {
+    if dir.is_dir() {
+        for entry in fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if !path.is_dir() {
+								let mut input = Vec::new();
+								input = fs::read(&entry.path()).unwrap();
+								println!("[*] Adding file {:?} to fuzz input", &entry.path());
+								unsafe { input_files.push(input.clone()) };
+            }
+        }
+    }
+}
+
+
+fn fuzz(tid: i64, cmd_args: &Vec<String>) {
+
+    let mut rand = rand::thread_rng();
+
+    unsafe {
+        let orig_input: Vec<u8> = input_files[rand::thread_rng().gen_range(0..input_files.len())].clone();
+        let mut scratch_space: Vec<u8> = vec![0; orig_input.len()];
+        let mut args: Vec<String> = Vec::new();
+        
+        let tmp_filename = format!("/Volumes/RAM Disk/ramstuff/.tmpFuzzFile{}", tid);
+        args.push(tmp_filename);
+        for i in 3..cmd_args.len() {
+            args.push(cmd_args[i].clone());
+        }
+
+        loop {
+            scratch_space.copy_from_slice(&orig_input);
+            mutate::mutate(&mut rand, &mut scratch_space);
+            // write temp fuzz file
+            let tmp_filename = format!("/Volumes/RAM Disk/ramstuff/.tmpFuzzFile{}", tid);
+            fs::write(&tmp_filename, &scratch_space).unwrap();
+
+            let mut proc = process::Command::new(&cmd_args[2])
+                .args(&args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .env("DYLD_INSERT_LIBRARIES", "/usr/lib/libgmalloc.dylib")
+                .spawn()
+                .expect("Could not start process");
+
+            let res = proc.wait().expect("Could not wait for process to exit");
+            if let Some(code) = res.code() {
+                // no crash 
+                //println!("Code {}", code);
+            } else {
+                /// Crash did happen, not sure if segfault
+                let mut hasher = Sha1::new();
+                hasher.update(&scratch_space);
+                let crash_filename = format!("crashfile_{}", hasher.digest().to_string());
+                println!("[+] Writing crash file: {}", crash_filename);
+                fs::write(crash_filename, &scratch_space).unwrap();
+            }
+            unsafe { COUNTER += 1 };
+        }
+        println!("LEAVING DA LOOP");
+    }
+}
+
+fn main() {
+
+    let prog_args: Vec<String> = args().collect();
+    if prog_args.len() == 1 {
+        println!("Usage: {} <corpus folder> <command> [CMD ARG1] [CMD ARG2]... (input files will be placed last)", prog_args[0]);
+        exit(1);
+    }
+		
+		//fill_up_input_files(Path::new("/Users/esjay/fun/fuzz/targets/assetutil/crashes/"));
+		fill_up_input_files(Path::new(&prog_args[1]));
+
+    let mut threads = vec![];
+
+    thread::spawn(|| {
+        print_statistics();
+    });
+
+    println!("[*] Start fuzzing threads...");
+    for i in 0..NTHREADS {
+        //let tmp = prog_args[2].clone();
+        let tmp = prog_args.clone();
+        threads.push(thread::spawn(move|| {
+            fuzz(i, &tmp);
+        }));
+    }
+
+    for t in threads {
+        let _ = t.join();
+    }
+}
