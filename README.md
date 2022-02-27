@@ -1,6 +1,8 @@
 ## Info
 
-Simple commandline fuzzer written in rust for tools who parse local files
+Simple commandline fuzzer written in rust for tools who parse local files.
+It's mainly written for OSX but with minor modifications will run on any platform.
+
 We are making use of ramdisk to enhance the fuzzing speed a bit.
 
 Hence execute the following commands before running the fuzzer (path currently hardcoded)
