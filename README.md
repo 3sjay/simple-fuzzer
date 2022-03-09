@@ -1,7 +1,7 @@
 ## Info
 
 Simple commandline fuzzer written in rust for tools who parse local files.
-It's mainly written for OSX but with minor modifications will run on any platform.
+It's mainly written for OSX but with minor modifications will run on any \*nix platform.
 
 We are making use of ramdisk to enhance the fuzzing speed a bit.
 
