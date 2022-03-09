@@ -17,7 +17,7 @@ arg[2] => tool to fuzz
 arg[n] => other commandline paramters
 arg[n+1] => (will be added by the fuzzer automatically) is the mutated file on the ramdisk
 ```
-# cargo run ~/fun/fuzz/targets/targetbin/corpus  ~/fun/fuzz/targets/assetutil/CARParser 
+# cargo run ~/fun/fuzz/targets/targetbin/corpus  ~/fun/fuzz/targets/mytarget
 ```
 
 The libgmalloc is used to hopefully find more heap related bugs, here the cmd for easily retesting the bug
